@@ -131,7 +131,8 @@ update_capabilities(struct cg_seat *seat)
 	if ((caps & WL_SEAT_CAPABILITY_POINTER) == 0) {
 		wlr_cursor_unset_image(seat->cursor);
 	} else {
-		wlr_cursor_set_xcursor(seat->cursor, seat->server->xcursor_manager, DEFAULT_XCURSOR);
+	//	wlr_cursor_set_xcursor(seat->cursor, seat->server->xcursor_manager, DEFAULT_XCURSOR);
+		wlr_cursor_unset_image(seat->cursor);
 	}
 }
 
@@ -519,6 +520,7 @@ handle_request_set_shape(struct wl_listener *listener, void *data)
 	    (seat->seat->capabilities & WL_SEAT_CAPABILITY_POINTER) != 0) {
 		const char *shape_name = wlr_cursor_shape_v1_name(event->shape);
 		wlr_cursor_set_xcursor(seat->cursor, seat->server->xcursor_manager, shape_name);
+		wlr_cursor_unset_image(seat->cursor);
 	}
 }
 

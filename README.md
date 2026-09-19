@@ -1,4 +1,4 @@
-# Cage: a Wayland kiosk
+# Kino Cage
 
 <img src="https://www.hjdskes.nl/img/projects/cage/cage.svg" alt="Cage's logo" width="150px" align="right">
 
