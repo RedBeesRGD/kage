@@ -29,6 +29,11 @@ struct cg_upscale {
 	/* Most recent render of the virtual output, locked. */
 	struct wlr_buffer *last_buffer;
 
+	/* WLR_SCENE_DISABLE_DIRECT_SCANOUT as it was before we touched it, so
+	 * the presentation scenes can be created with the user's setting. */
+	char *scanout_env;
+	bool scanout_env_set;
+
 	struct wl_listener commit;
 	struct wl_listener frame;
 	struct wl_listener destroy;

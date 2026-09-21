@@ -198,8 +198,41 @@ upscale_prepare_scene(struct cg_server *server)
 	 * does not overwrite an existing setting, so exporting the variable as 0
 	 * is still a way to get scanout back.
 	 */
-	if (setenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT", "1", false) != 0) {
+	const char *prev = getenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT");
+	if (prev != NULL) {
+		server->upscale.scanout_env = strdup(prev);
+		server->upscale.scanout_env_set = server->upscale.scanout_env != NULL;
+	}
+
+	if (setenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT", "1", true) != 0) {
 		wlr_log_errno(WLR_ERROR, "Unable to disable direct scan-out");
+	}
+}
+
+/*
+ * Undo the above, for the presentation scenes only.
+ *
+ * The scene reads the variable once, when it is created, so scoping the
+ * override to the client scene is a matter of restoring it before any
+ * presentation scene exists. A physical output presenting the virtual frame
+ * unscaled or at an integer multiple is exactly the case a scaling plane
+ * handles for free, and the display controller is told which filter to use, so
+ * the result is pixel exact without the GPU touching it.
+ */
+static void
+upscale_restore_scanout(struct cg_upscale *upscale)
+{
+	static bool restored = false;
+
+	if (restored) {
+		return;
+	}
+	restored = true;
+
+	if (upscale->scanout_env_set) {
+		setenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT", upscale->scanout_env, true);
+	} else {
+		unsetenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT");
 	}
 }
 
@@ -315,6 +348,8 @@ upscale_setup_sink(struct cg_output *output)
 {
 	struct cg_server *server = output->server;
 	struct cg_upscale *upscale = &server->upscale;
+
+	upscale_restore_scanout(upscale);
 
 	output->present_scene = wlr_scene_create();
 	if (!output->present_scene) {
@@ -479,4 +514,8 @@ upscale_destroy(struct cg_server *server)
 	}
 
 	upscale_set_last_buffer(upscale, NULL);
+
+	free(upscale->scanout_env);
+	upscale->scanout_env = NULL;
+	upscale->scanout_env_set = false;
 }
