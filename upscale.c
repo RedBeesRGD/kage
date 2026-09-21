@@ -94,10 +94,19 @@ handle_virtual_output_commit(struct wl_listener *listener, void *data)
 
 	upscale_set_last_buffer(upscale, event->state->buffer);
 
+	static bool reported = false;
+	if (!reported) {
+		wlr_log(WLR_DEBUG, "upscale: virtual output committed a %dx%d buffer", event->state->buffer->width,
+			event->state->buffer->height);
+		reported = true;
+	}
+
 	struct cg_output *output;
 	wl_list_for_each (output, &upscale->server->outputs, link) {
 		if (output->present_buffer) {
 			wlr_scene_buffer_set_buffer(output->present_buffer, event->state->buffer);
+			/* Setting a buffer must not be allowed to lose this. */
+			wlr_scene_buffer_set_filter_mode(output->present_buffer, WLR_SCALE_FILTER_NEAREST);
 		}
 	}
 }
@@ -338,6 +347,7 @@ upscale_update_sink(struct cg_output *output)
 	int dest_width = upscale->width * factor;
 	int dest_height = upscale->height * factor;
 
+	wlr_scene_buffer_set_filter_mode(output->present_buffer, WLR_SCALE_FILTER_NEAREST);
 	wlr_scene_buffer_set_dest_size(output->present_buffer, dest_width, dest_height);
 	wlr_scene_node_set_position(&output->present_buffer->node, (width - dest_width) / 2,
 				    (height - dest_height) / 2);
@@ -365,6 +375,12 @@ static void
 set_nearest_filter(struct wlr_scene_buffer *buffer, int sx, int sy, void *data)
 {
 	wlr_scene_buffer_set_filter_mode(buffer, WLR_SCALE_FILTER_NEAREST);
+
+	bool *reported = data;
+	if (reported != NULL && !*reported && buffer->buffer != NULL) {
+		wlr_log(WLR_DEBUG, "upscale: client buffer %dx%d drawn as %dx%d", buffer->buffer->width,
+			buffer->buffer->height, buffer->dst_width, buffer->dst_height);
+	}
 }
 
 /*
@@ -378,13 +394,15 @@ set_nearest_filter(struct wlr_scene_buffer *buffer, int sx, int sy, void *data)
 static void
 pixelate_clients(struct cg_server *server)
 {
+	static bool reported = false;
 	struct cg_view *view;
 
 	wl_list_for_each (view, &server->views, link) {
 		if (view->scene_tree) {
-			wlr_scene_node_for_each_buffer(&view->scene_tree->node, set_nearest_filter, NULL);
+			wlr_scene_node_for_each_buffer(&view->scene_tree->node, set_nearest_filter, &reported);
 		}
 	}
+	reported = true;
 }
 
 void
