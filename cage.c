@@ -58,6 +58,7 @@
 #include "output.h"
 #include "seat.h"
 #include "server.h"
+#include "upscale.h"
 #include "view.h"
 #include "xdg_shell.h"
 #if CAGE_HAS_XWAYLAND
@@ -267,6 +268,10 @@ usage(FILE *file, const char *cage)
 		" -h\t Display this help message\n"
 		" -m extend Extend the display across all connected outputs (default)\n"
 		" -m last Use only the last connected output\n"
+		" -r WxH\t Show clients a single WxH output and scale it onto the\n"
+		"\t physical outputs, e.g. -r 640x480\n"
+		" -k N\t Never scale by more than N (default 3)\n"
+		" -P\t Expose the physical outputs to clients (debugging)\n"
 		" -s\t Allow VT switching\n"
 		" -v\t Show the version number and exit\n"
 		" -x\t Disable XWayland\n"
@@ -279,9 +284,10 @@ static bool
 parse_args(struct cg_server *server, int argc, char *argv[])
 {
 	server->enable_xwayland = true;
+	server->upscale.max_scale = 3;
 
 	int c;
-	while ((c = getopt(argc, argv, "dDhm:svx")) != -1) {
+	while ((c = getopt(argc, argv, "dDhk:m:Pr:svx")) != -1) {
 		switch (c) {
 		case 'd':
 			server->xdg_decoration = true;
@@ -292,6 +298,23 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 		case 'h':
 			usage(stdout, argv[0]);
 			return false;
+		case 'k':
+			if (!upscale_parse_max_scale(&server->upscale, optarg)) {
+				fprintf(stderr, "Invalid maximum scale: '%s'\n", optarg);
+				usage(stderr, argv[0]);
+				return false;
+			}
+			break;
+		case 'P':
+			server->expose_physical_outputs = true;
+			break;
+		case 'r':
+			if (!upscale_parse_size(&server->upscale, optarg)) {
+				fprintf(stderr, "Invalid resolution: '%s', expected WIDTHxHEIGHT\n", optarg);
+				usage(stderr, argv[0]);
+				return false;
+			}
+			break;
 		case 'm':
 			if (strcmp(optarg, "last") == 0) {
 				server->output_mode = CAGE_MULTI_OUTPUT_MODE_LAST;
@@ -363,6 +386,13 @@ main(int argc, char *argv[])
 	}
 
 	if (!drop_permissions()) {
+		ret = 1;
+		goto end;
+	}
+
+	/* Must happen before the renderer and allocator are created, so that
+	 * they are picked to be compatible with the headless backend too. */
+	if (server.upscale.enabled && !upscale_create_backend(&server)) {
 		ret = 1;
 		goto end;
 	}
@@ -674,6 +704,13 @@ main(int argc, char *argv[])
 		goto end;
 	}
 
+	/* The virtual output has to exist before the first client connects, so
+	 * that it is the only wl_output they ever see. */
+	if (server.upscale.enabled && !upscale_create_output(&server)) {
+		ret = 1;
+		goto end;
+	}
+
 	if (setenv("WAYLAND_DISPLAY", socket, true) < 0) {
 		wlr_log_errno(WLR_ERROR, "Unable to set WAYLAND_DISPLAY. Clients may not be able to connect");
 	} else {
@@ -731,6 +768,7 @@ end:
 		wl_event_source_remove(sigchld_source);
 	}
 	seat_destroy(server.seat);
+	upscale_destroy(&server);
 	/* This function is not null-safe, but we only ever get here
 	   with a proper wl_display. */
 	wl_display_destroy(server.wl_display);

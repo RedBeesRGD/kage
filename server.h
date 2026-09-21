@@ -17,6 +17,8 @@
 #include <wlr/xwayland.h>
 #endif
 
+#include "upscale.h"
+
 enum cg_multi_output_mode {
 	CAGE_MULTI_OUTPUT_MODE_EXTEND,
 	CAGE_MULTI_OUTPUT_MODE_LAST,
@@ -38,6 +40,8 @@ struct cg_server {
 	struct wl_list inhibitors;
 
 	enum cg_multi_output_mode output_mode;
+	struct cg_upscale upscale;
+	bool expose_physical_outputs;
 	struct wlr_output_layout *output_layout;
 	struct wlr_scene_output_layout *scene_output_layout;
 

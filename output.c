@@ -36,6 +36,7 @@
 
 #include "output.h"
 #include "server.h"
+#include "upscale.h"
 #include "view.h"
 #if CAGE_HAS_XWAYLAND
 #include "xwayland.h"
@@ -70,6 +71,13 @@ update_output_manager_config(struct cg_server *server)
 static inline void
 output_layout_add_auto(struct cg_output *output)
 {
+	if (output->server->upscale.enabled) {
+		/* Physical outputs are not part of the layout clients see: they
+		 * only present the virtual output. */
+		upscale_update_sink(output);
+		return;
+	}
+
 	assert(output->scene_output != NULL);
 	struct wlr_output_layout_output *layout_output =
 		wlr_output_layout_add_auto(output->server->output_layout, output->wlr_output);
@@ -79,6 +87,11 @@ output_layout_add_auto(struct cg_output *output)
 static inline void
 output_layout_add(struct cg_output *output, int32_t x, int32_t y)
 {
+	if (output->server->upscale.enabled) {
+		upscale_update_sink(output);
+		return;
+	}
+
 	assert(output->scene_output != NULL);
 	bool exists = wlr_output_layout_get(output->server->output_layout, output->wlr_output);
 	struct wlr_output_layout_output *layout_output =
@@ -92,6 +105,10 @@ output_layout_add(struct cg_output *output, int32_t x, int32_t y)
 static inline void
 output_layout_remove(struct cg_output *output)
 {
+	if (output->server->upscale.enabled) {
+		return;
+	}
+
 	wlr_output_layout_remove(output->server->output_layout, output->wlr_output);
 }
 
@@ -129,22 +146,34 @@ output_disable(struct cg_output *output)
 	wlr_output_state_set_enabled(&state, false);
 	wlr_output_commit_state(wlr_output, &state);
 	output_layout_remove(output);
+	upscale_sink_gone(output->server);
 }
 
 static void
 handle_output_frame(struct wl_listener *listener, void *data)
 {
 	struct cg_output *output = wl_container_of(listener, output, frame);
+	struct cg_server *server = output->server;
 
 	if (!output->wlr_output->enabled || !output->scene_output) {
 		return;
 	}
 
+	/* Refresh the virtual output first: this is what feeds the buffer that
+	 * we are about to scale onto this output. */
+	upscale_render(server);
+
 	wlr_scene_output_commit(output->scene_output, NULL);
 
 	struct timespec now = {0};
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	wlr_scene_output_send_frame_done(output->scene_output, &now);
+	if (server->upscale.enabled) {
+		/* Clients live on the virtual output, so that is where frame
+		 * callbacks have to go, paced by this physical output. */
+		upscale_send_frame_done(server, &now);
+	} else {
+		wlr_scene_output_send_frame_done(output->scene_output, &now);
+	}
 }
 
 static void
@@ -158,6 +187,8 @@ handle_output_commit(struct wl_listener *listener, void *data)
 	 * - always update output manager configuration even if the output is now disabled */
 
 	if (event->state->committed & OUTPUT_CONFIG_UPDATED) {
+		/* The destination box depends on this output's mode. */
+		upscale_update_sink(output);
 		update_output_manager_config(output->server);
 	}
 }
@@ -212,6 +243,14 @@ output_destroy(struct cg_output *output)
 
 	output_layout_remove(output);
 
+	if (output->present_scene) {
+		/* Destroys the presentation buffer node and its scene output. */
+		wlr_scene_node_destroy(&output->present_scene->tree.node);
+		output->present_scene = NULL;
+		output->present_buffer = NULL;
+		output->scene_output = NULL;
+	}
+
 	free(output);
 
 	if (wl_list_empty(&server->outputs) && was_nested_output) {
@@ -221,6 +260,8 @@ output_destroy(struct cg_output *output)
 		output_enable(prev);
 		view_position_all(server);
 	}
+
+	upscale_sink_gone(server);
 }
 
 static void
@@ -243,6 +284,12 @@ handle_new_output(struct wl_listener *listener, void *data)
 			wlr_drm_lease_v1_manager_offer_output(server->drm_lease_v1, wlr_output);
 		}
 #endif
+		return;
+	}
+
+	/* The virtual output is configured by the upscale module and never
+	 * becomes a cg_output. */
+	if (upscale_claim_output(server, wlr_output)) {
 		return;
 	}
 
@@ -272,10 +319,23 @@ handle_new_output(struct wl_listener *listener, void *data)
 	output->frame.notify = handle_output_frame;
 	wl_signal_add(&wlr_output->events.frame, &output->frame);
 
-	output->scene_output = wlr_scene_output_create(server->scene, wlr_output);
-	if (!output->scene_output) {
-		wlr_log(WLR_ERROR, "Failed to allocate scene output");
-		return;
+	if (server->upscale.enabled) {
+		if (!upscale_setup_sink(output)) {
+			return;
+		}
+		if (server->expose_physical_outputs) {
+			/* Debugging aid: physical outputs are normally invisible
+			 * to clients, which also puts them out of reach of
+			 * screen capture. */
+			wlr_log(WLR_INFO, "Exposing physical output %s to clients", wlr_output->name);
+			wlr_output_create_global(wlr_output, server->wl_display);
+		}
+	} else {
+		output->scene_output = wlr_scene_output_create(server->scene, wlr_output);
+		if (!output->scene_output) {
+			wlr_log(WLR_ERROR, "Failed to allocate scene output");
+			return;
+		}
 	}
 
 	struct wlr_output_state state = {0};

@@ -95,6 +95,7 @@ cage_sources = [
   'idle_inhibit_v1.c',
   'output.c',
   'seat.c',
+  'upscale.c',
   'view.c',
   'xdg_shell.c',
   configure_file(input: 'config.h.in',

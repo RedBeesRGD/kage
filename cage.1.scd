@@ -30,6 +30,27 @@ activities outside the scope of the running application are prevented.
 	*last* Cage uses only the last connected monitor.
 	*extend* Cage extends the display across all connected monitors.
 
+*-r* <width>x<height>
+	Publish a single virtual output of exactly _width_x_height_ to clients,
+	regardless of the physical outputs and their EDID, and scale its frames
+	onto every physical output. Views, the cursor and absolute input all live
+	in the virtual coordinate space.
+
+	The physical outputs keep running at the mode they would have used
+	anyway. Each frame is scaled by the largest whole number of times that
+	fits, with nearest-neighbour filtering, and centred, so the picture stays
+	pixel exact and the remainder is black.
+
+*-k* <n>
+	Never scale by more than _n_, however much room the physical output has.
+	Defaults to 3. Only meaningful together with *-r*.
+
+*-P*
+	Expose the physical outputs to clients. In upscale mode they are normally
+	invisible, which also puts them out of reach of screen capture; this flag
+	makes them capturable. It is a debugging aid: with it, clients see
+	outputs they are not meant to see.
+
 *-s*
 	Allow VT switching
 

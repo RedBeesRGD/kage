@@ -10,7 +10,13 @@
 struct cg_output {
 	struct cg_server *server;
 	struct wlr_output *wlr_output;
+	/* In upscale mode this belongs to present_scene, not to server->scene. */
 	struct wlr_scene_output *scene_output;
+
+	/* Upscale mode only: a scene holding nothing but the virtual output's
+	 * last frame, scaled up to this output. */
+	struct wlr_scene *present_scene;
+	struct wlr_scene_buffer *present_buffer;
 
 	struct wl_listener commit;
 	struct wl_listener request_state;
