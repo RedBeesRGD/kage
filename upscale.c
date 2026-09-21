@@ -115,19 +115,35 @@ has_enabled_sink(struct cg_server *server)
 }
 
 /*
- * Physical outputs normally drive the virtual output: they render it on their
- * own frame events. Without any of them, fall back to the headless backend's
- * timer so that clients keep receiving frame callbacks.
+ * The virtual output has something new to show.
+ *
+ * Physical outputs render and present in their own frame handlers, and a
+ * physical output only gets another frame event once it commits. It only
+ * commits when the virtual output has produced something, and the virtual
+ * output is only rendered from a physical frame handler: left alone, the two
+ * schedules deadlock as soon as the compositor goes idle, and the screen stays
+ * black however hard the client draws. So waking the physical outputs here is
+ * what keeps the loop alive.
  */
 static void
 handle_virtual_output_frame(struct wl_listener *listener, void *data)
 {
 	struct cg_upscale *upscale = wl_container_of(listener, upscale, frame);
+	bool presented = false;
 
-	if (has_enabled_sink(upscale->server)) {
+	struct cg_output *output;
+	wl_list_for_each (output, &upscale->server->outputs, link) {
+		if (output->wlr_output->enabled && output->scene_output) {
+			wlr_output_schedule_frame(output->wlr_output);
+			presented = true;
+		}
+	}
+
+	if (presented) {
 		return;
 	}
 
+	/* Nothing is presenting us, so drive the clients ourselves. */
 	wlr_scene_output_commit(upscale->scene_output, NULL);
 
 	struct timespec now = {0};
