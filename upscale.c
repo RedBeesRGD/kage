@@ -26,6 +26,7 @@
 #include "output.h"
 #include "server.h"
 #include "upscale.h"
+#include "view.h"
 
 bool
 upscale_parse_size(struct cg_upscale *upscale, const char *arg)
@@ -360,6 +361,32 @@ upscale_sink_gone(struct cg_server *server)
 	wlr_output_schedule_frame(upscale->wlr_output);
 }
 
+static void
+set_nearest_filter(struct wlr_scene_buffer *buffer, int sx, int sy, void *data)
+{
+	wlr_scene_buffer_set_filter_mode(buffer, WLR_SCALE_FILTER_NEAREST);
+}
+
+/*
+ * Scene buffers default to bilinear filtering, and that includes the clients'
+ * own surfaces. A client that scales inside the virtual output - a viewport,
+ * which is how SDL implements its emulated fullscreen modes, or a buffer scale
+ * - would therefore be interpolated before we ever see it, and no amount of
+ * nearest-neighbour at the end brings those pixels back. Everything in this
+ * pipeline has to be nearest for the result to be pixel exact.
+ */
+static void
+pixelate_clients(struct cg_server *server)
+{
+	struct cg_view *view;
+
+	wl_list_for_each (view, &server->views, link) {
+		if (view->scene_tree) {
+			wlr_scene_node_for_each_buffer(&view->scene_tree->node, set_nearest_filter, NULL);
+		}
+	}
+}
+
 void
 upscale_render(struct cg_server *server)
 {
@@ -368,6 +395,8 @@ upscale_render(struct cg_server *server)
 	if (!upscale->enabled || !upscale->scene_output) {
 		return;
 	}
+
+	pixelate_clients(server);
 
 	/* A no-op when the virtual scene is undamaged, so calling this once per
 	 * physical output per frame is cheap. */
