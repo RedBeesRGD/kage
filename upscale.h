@@ -37,6 +37,9 @@ struct cg_upscale {
 bool upscale_parse_size(struct cg_upscale *upscale, const char *arg);
 bool upscale_parse_max_scale(struct cg_upscale *upscale, const char *arg);
 
+/* Must be called before the scene is created. */
+void upscale_prepare_scene(struct cg_server *server);
+
 /* Must be called before the renderer and allocator are created. */
 bool upscale_create_backend(struct cg_server *server);
 /* Must be called after the backend has been started. */

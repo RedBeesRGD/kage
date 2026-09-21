@@ -178,6 +178,31 @@ handle_virtual_output_destroy(struct wl_listener *listener, void *data)
 	upscale->scene_output = NULL;
 }
 
+void
+upscale_prepare_scene(struct cg_server *server)
+{
+	if (!server->upscale.enabled) {
+		return;
+	}
+
+	/*
+	 * Direct scanout would hand the client's own dmabuf straight to the
+	 * presentation scene, and that is where pixel exactness quietly dies: a
+	 * dmabuf that EGL reports as external_only imports as
+	 * GL_TEXTURE_EXTERNAL_OES, and Mali's driver ignores sampler filter
+	 * state on external images, so the nearest filter is discarded and the
+	 * upscale comes out bilinear. Compositing into our own buffer instead
+	 * costs one 1:1 copy of a small frame and keeps the sampling ours.
+	 *
+	 * The scene reads this when it is created, so this has to run first. It
+	 * does not overwrite an existing setting, so exporting the variable as 0
+	 * is still a way to get scanout back.
+	 */
+	if (setenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT", "1", false) != 0) {
+		wlr_log_errno(WLR_ERROR, "Unable to disable direct scan-out");
+	}
+}
+
 bool
 upscale_create_backend(struct cg_server *server)
 {

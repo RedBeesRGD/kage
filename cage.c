@@ -447,6 +447,8 @@ main(int argc, char *argv[])
 	server.output_layout_change.notify = handle_output_layout_change;
 	wl_signal_add(&server.output_layout->events.change, &server.output_layout_change);
 
+	upscale_prepare_scene(&server);
+
 	server.scene = wlr_scene_create();
 	if (!server.scene) {
 		wlr_log(WLR_ERROR, "Unable to create scene");
