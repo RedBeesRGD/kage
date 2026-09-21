@@ -75,6 +75,7 @@ void upscale_update_sink(struct cg_output *output);
 void upscale_sink_gone(struct cg_server *server);
 
 void upscale_render(struct cg_server *server);
+bool upscale_commit_sink(struct cg_output *output);
 void upscale_send_frame_done(struct cg_server *server, struct timespec *now);
 
 #endif

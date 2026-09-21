@@ -163,7 +163,7 @@ handle_output_frame(struct wl_listener *listener, void *data)
 	 * we are about to scale onto this output. */
 	upscale_render(server);
 
-	wlr_scene_output_commit(output->scene_output, NULL);
+	upscale_commit_sink(output);
 
 	struct timespec now = {0};
 	clock_gettime(CLOCK_MONOTONIC, &now);

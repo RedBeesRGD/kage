@@ -555,6 +555,45 @@ upscale_render(struct cg_server *server)
 	wlr_scene_output_commit(upscale->scene_output, NULL);
 }
 
+/*
+ * Commit a presentation output, stating the filter.
+ *
+ * wlr_scene_output_commit() only expresses the filter when the frame is handed
+ * to a plane, and never on the commit that sets the mode. A display controller
+ * that can be told which filter to use should be told on every commit that
+ * scales, whether or not that particular frame ends up scanned out, so build
+ * the state here and say so.
+ */
+bool
+upscale_commit_sink(struct cg_output *output)
+{
+	struct cg_server *server = output->server;
+	bool ok = false;
+
+	if (!server->upscale.enabled) {
+		return wlr_scene_output_commit(output->scene_output, NULL);
+	}
+
+	if (!wlr_scene_output_needs_frame(output->scene_output)) {
+		return true;
+	}
+
+	struct wlr_output_state state;
+	wlr_output_state_init(&state);
+
+	if (!wlr_scene_output_build_state(output->scene_output, &state, NULL)) {
+		goto out;
+	}
+
+	state.buffer_scale_filter = upscale_filter(&server->upscale);
+
+	ok = wlr_output_commit_state(output->wlr_output, &state);
+
+out:
+	wlr_output_state_finish(&state);
+	return ok;
+}
+
 void
 upscale_send_frame_done(struct cg_server *server, struct timespec *now)
 {

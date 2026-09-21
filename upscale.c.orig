@@ -10,6 +10,7 @@
 
 #include "config.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wayland-server-core.h>
@@ -64,6 +65,34 @@ upscale_parse_max_scale(struct cg_upscale *upscale, const char *arg)
 	return true;
 }
 
+bool
+upscale_parse_fit(struct cg_upscale *upscale, const char *arg)
+{
+	if (strcmp(arg, "integer") == 0) {
+		upscale->fit = CG_UPSCALE_INTEGER;
+	} else if (strcmp(arg, "fit") == 0) {
+		upscale->fit = CG_UPSCALE_FIT;
+	} else if (strcmp(arg, "fill") == 0) {
+		upscale->fit = CG_UPSCALE_FILL;
+	} else {
+		return false;
+	}
+
+	return true;
+}
+
+/*
+ * Only a whole-number scale can be reproduced exactly, so that is the only
+ * case where nearest-neighbour is the right answer. Anything else lands source
+ * pixels between destination pixels, where nearest turns a smooth edge into a
+ * ragged one and interpolation is plainly better.
+ */
+static enum wlr_scale_filter_mode
+upscale_filter(const struct cg_upscale *upscale)
+{
+	return upscale->fit == CG_UPSCALE_INTEGER ? WLR_SCALE_FILTER_NEAREST : WLR_SCALE_FILTER_BILINEAR;
+}
+
 static void
 upscale_set_last_buffer(struct cg_upscale *upscale, struct wlr_buffer *buffer)
 {
@@ -106,7 +135,7 @@ handle_virtual_output_commit(struct wl_listener *listener, void *data)
 		if (output->present_buffer) {
 			wlr_scene_buffer_set_buffer(output->present_buffer, event->state->buffer);
 			/* Setting a buffer must not be allowed to lose this. */
-			wlr_scene_buffer_set_filter_mode(output->present_buffer, WLR_SCALE_FILTER_NEAREST);
+			wlr_scene_buffer_set_filter_mode(output->present_buffer, upscale_filter(upscale));
 		}
 	}
 }
@@ -363,8 +392,7 @@ upscale_setup_sink(struct cg_output *output)
 		return false;
 	}
 
-	/* The whole point is pixel exactness, so never interpolate. */
-	wlr_scene_buffer_set_filter_mode(output->present_buffer, WLR_SCALE_FILTER_NEAREST);
+	wlr_scene_buffer_set_filter_mode(output->present_buffer, upscale_filter(upscale));
 
 	output->scene_output = wlr_scene_output_create(output->present_scene, output->wlr_output);
 	if (!output->scene_output) {
@@ -392,29 +420,66 @@ upscale_update_sink(struct cg_output *output)
 		return;
 	}
 
-	/* The largest whole number of times the virtual output fits, capped so a
-	 * very large panel cannot ask the GPU for more than we want to pay. */
-	int factor_x = width / upscale->width;
-	int factor_y = height / upscale->height;
-	int factor = factor_x < factor_y ? factor_x : factor_y;
-	if (factor > upscale->max_scale) {
-		factor = upscale->max_scale;
+	int dest_width, dest_height;
+	const char *how;
+
+	switch (upscale->fit) {
+	case CG_UPSCALE_FILL:
+		dest_width = width;
+		dest_height = height;
+		how = "stretched";
+		break;
+	case CG_UPSCALE_FIT: {
+		/*
+		 * The largest rectangle with the virtual output's aspect ratio.
+		 * Comparing the cross products avoids floating point and tells
+		 * us which axis runs out first.
+		 */
+		int64_t by_width = (int64_t) width * upscale->height;
+		int64_t by_height = (int64_t) height * upscale->width;
+
+		if (by_width <= by_height) {
+			dest_width = width;
+			dest_height = (int) (by_width / upscale->width);
+		} else {
+			dest_height = height;
+			dest_width = (int) (by_height / upscale->height);
+		}
+		how = "fitted";
+		break;
 	}
-	if (factor < 1) {
-		factor = 1;
+	case CG_UPSCALE_INTEGER:
+	default: {
+		/* The largest whole number of times the virtual output fits,
+		 * capped so a very large panel cannot ask for more than we want
+		 * to pay for. */
+		int factor_x = width / upscale->width;
+		int factor_y = height / upscale->height;
+		int factor = factor_x < factor_y ? factor_x : factor_y;
+
+		if (factor > upscale->max_scale) {
+			factor = upscale->max_scale;
+		}
+		if (factor < 1) {
+			factor = 1;
+		}
+
+		dest_width = upscale->width * factor;
+		dest_height = upscale->height * factor;
+		how = "integer";
+		break;
+	}
 	}
 
-	int dest_width = upscale->width * factor;
-	int dest_height = upscale->height * factor;
-
-	wlr_scene_buffer_set_filter_mode(output->present_buffer, WLR_SCALE_FILTER_NEAREST);
+	wlr_scene_buffer_set_filter_mode(output->present_buffer, upscale_filter(upscale));
 	wlr_scene_buffer_set_dest_size(output->present_buffer, dest_width, dest_height);
 	wlr_scene_node_set_position(&output->present_buffer->node, (width - dest_width) / 2,
 				    (height - dest_height) / 2);
 
-	wlr_log(WLR_INFO, "Output %s (%dx%d): %dx%d scaled %dx to %dx%d at %d,%d", output->wlr_output->name, width,
-		height, upscale->width, upscale->height, factor, dest_width, dest_height, (width - dest_width) / 2,
-		(height - dest_height) / 2);
+	wlr_log(WLR_INFO, "Output %s (%dx%d): %dx%d %s to %dx%d at %d,%d, %s", output->wlr_output->name, width, height,
+		upscale->width, upscale->height, how, dest_width, dest_height, (width - dest_width) / 2,
+		(height - dest_height) / 2,
+		upscale_filter(upscale) == WLR_SCALE_FILTER_NEAREST ? "nearest" : "interpolated");
 }
 
 void
@@ -431,35 +496,44 @@ upscale_sink_gone(struct cg_server *server)
 	wlr_output_schedule_frame(upscale->wlr_output);
 }
 
-static void
-set_nearest_filter(struct wlr_scene_buffer *buffer, int sx, int sy, void *data)
-{
-	wlr_scene_buffer_set_filter_mode(buffer, WLR_SCALE_FILTER_NEAREST);
+struct client_filter {
+	enum wlr_scale_filter_mode filter;
+	bool *reported;
+};
 
-	bool *reported = data;
-	if (reported != NULL && !*reported && buffer->buffer != NULL) {
+static void
+set_client_filter(struct wlr_scene_buffer *buffer, int sx, int sy, void *data)
+{
+	const struct client_filter *ctx = data;
+
+	wlr_scene_buffer_set_filter_mode(buffer, ctx->filter);
+
+	if (ctx->reported != NULL && !*ctx->reported && buffer->buffer != NULL) {
 		wlr_log(WLR_DEBUG, "upscale: client buffer %dx%d drawn as %dx%d", buffer->buffer->width,
 			buffer->buffer->height, buffer->dst_width, buffer->dst_height);
 	}
 }
 
 /*
- * Scene buffers default to bilinear filtering, and that includes the clients'
- * own surfaces. A client that scales inside the virtual output - a viewport,
- * which is how SDL implements its emulated fullscreen modes, or a buffer scale
- * - would therefore be interpolated before we ever see it, and no amount of
- * nearest-neighbour at the end brings those pixels back. Everything in this
- * pipeline has to be nearest for the result to be pixel exact.
+ * The clients' own surfaces need the same filter as the presentation. A client
+ * that scales inside the virtual output - a viewport, which is how SDL
+ * implements its emulated fullscreen modes, or a buffer scale - is filtered
+ * before we ever see it, and nothing at the end can undo that choice. Both
+ * stages have to agree or the result is whichever one is worse.
  */
 static void
 pixelate_clients(struct cg_server *server)
 {
 	static bool reported = false;
+	struct client_filter ctx = {
+		.filter = upscale_filter(&server->upscale),
+		.reported = &reported,
+	};
 	struct cg_view *view;
 
 	wl_list_for_each (view, &server->views, link) {
 		if (view->scene_tree) {
-			wlr_scene_node_for_each_buffer(&view->scene_tree->node, set_nearest_filter, &reported);
+			wlr_scene_node_for_each_buffer(&view->scene_tree->node, set_client_filter, &ctx);
 		}
 	}
 	reported = true;
