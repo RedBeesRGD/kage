@@ -68,8 +68,8 @@ upscale_parse_max_scale(struct cg_upscale *upscale, const char *arg)
 bool
 upscale_parse_fit(struct cg_upscale *upscale, const char *arg)
 {
-	if (strcmp(arg, "integer") == 0) {
-		upscale->fit = CG_UPSCALE_INTEGER;
+	if (strcmp(arg, "exact") == 0) {
+		upscale->fit = CG_UPSCALE_EXACT;
 	} else if (strcmp(arg, "fit") == 0) {
 		upscale->fit = CG_UPSCALE_FIT;
 	} else if (strcmp(arg, "fill") == 0) {
@@ -81,16 +81,42 @@ upscale_parse_fit(struct cg_upscale *upscale, const char *arg)
 	return true;
 }
 
+bool
+upscale_parse_filter(struct cg_upscale *upscale, const char *arg)
+{
+	if (strcmp(arg, "auto") == 0) {
+		upscale->filter = CG_UPSCALE_FILTER_AUTO;
+	} else if (strcmp(arg, "nearest") == 0) {
+		upscale->filter = CG_UPSCALE_FILTER_NEAREST;
+	} else if (strcmp(arg, "bilinear") == 0) {
+		upscale->filter = CG_UPSCALE_FILTER_BILINEAR;
+	} else {
+		return false;
+	}
+
+	return true;
+}
+
 /*
- * Only a whole-number scale can be reproduced exactly, so that is the only
- * case where nearest-neighbour is the right answer. Anything else lands source
- * pixels between destination pixels, where nearest turns a smooth edge into a
- * ragged one and interpolation is plainly better.
+ * Left to itself, only a whole-number scale can be reproduced exactly, so that
+ * is the only case where nearest-neighbour is the obvious answer; anything else
+ * lands source pixels between destination pixels, where nearest turns a smooth
+ * edge into a ragged one. That is a default rather than a rule, though - pixel
+ * art stretched to fill the screen may well want nearest anyway - so -F
+ * overrides it.
  */
 static enum wlr_scale_filter_mode
 upscale_filter(const struct cg_upscale *upscale)
 {
-	return upscale->fit == CG_UPSCALE_INTEGER ? WLR_SCALE_FILTER_NEAREST : WLR_SCALE_FILTER_BILINEAR;
+	switch (upscale->filter) {
+	case CG_UPSCALE_FILTER_NEAREST:
+		return WLR_SCALE_FILTER_NEAREST;
+	case CG_UPSCALE_FILTER_BILINEAR:
+		return WLR_SCALE_FILTER_BILINEAR;
+	case CG_UPSCALE_FILTER_AUTO:
+	default:
+		return upscale->fit == CG_UPSCALE_EXACT ? WLR_SCALE_FILTER_NEAREST : WLR_SCALE_FILTER_BILINEAR;
+	}
 }
 
 static void
@@ -448,7 +474,7 @@ upscale_update_sink(struct cg_output *output)
 		how = "fitted";
 		break;
 	}
-	case CG_UPSCALE_INTEGER:
+	case CG_UPSCALE_EXACT:
 	default: {
 		/* The largest whole number of times the virtual output fits,
 		 * capped so a very large panel cannot ask for more than we want
@@ -466,7 +492,7 @@ upscale_update_sink(struct cg_output *output)
 
 		dest_width = upscale->width * factor;
 		dest_height = upscale->height * factor;
-		how = "integer";
+		how = "exact";
 		break;
 	}
 	}

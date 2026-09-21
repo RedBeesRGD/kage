@@ -43,25 +43,35 @@ activities outside the scope of the running application are prevented.
 	How the virtual output is presented on each physical output. Only
 	meaningful together with *-r*.
 
-	_integer_ scales by the largest whole number of times that fits, with
-	nearest-neighbour filtering, centred. Every source pixel becomes an
-	identical square block, so the picture is pixel exact and the remainder
-	is black. This is the default.
+	_exact_ scales by the largest whole number of times that fits, centred.
+	Every source pixel becomes an identical square block, so the picture can
+	be reproduced exactly and the remainder is black. This is the default.
 
 	_fit_ scales to the largest rectangle that keeps the virtual output's
-	aspect ratio, centred, with interpolation. One axis is filled exactly and
-	the other keeps a border; nothing is distorted, but the scale is not a
-	whole number so source pixels are blended.
+	aspect ratio, centred. One axis is filled exactly and the other keeps a
+	border; nothing is distorted, but the scale is not a whole number.
 
-	_fill_ stretches the frame to the whole output, with interpolation. No
-	border, at the cost of distorting the aspect ratio whenever the virtual
-	output and the physical one disagree.
+	_fill_ stretches the frame to the whole output. No border, at the cost of
+	distorting the aspect ratio whenever the virtual output and the physical
+	one disagree.
+
+*-F* <filter>
+	Which filter to scale with. Only meaningful together with *-r*.
+
+	_auto_ uses nearest-neighbour for *-f* _exact_ and interpolation for the
+	other two, on the grounds that only a whole-number scale can be
+	reproduced exactly. This is the default.
+
+	_nearest_ never interpolates, whatever the scale. Pixel art stretched to
+	fill a screen often wants this even though the scale is fractional.
+
+	_bilinear_ always interpolates, whatever the scale.
 
 	Where the display controller can scale a plane and be told which filter
-	to use, all three modes are performed by it rather than the GPU.
+	to use, every combination is performed by it rather than the GPU.
 
 *-k* <n>
-	With *-f* _integer_, never scale by more than _n_, however much room the
+	With *-f* _exact_, never scale by more than _n_, however much room the
 	physical output has. Defaults to 3. Only meaningful together with *-r*.
 
 *-P*
