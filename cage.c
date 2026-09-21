@@ -270,7 +270,10 @@ usage(FILE *file, const char *cage)
 		" -m last Use only the last connected output\n"
 		" -r WxH\t Show clients a single WxH output and scale it onto the\n"
 		"\t physical outputs, e.g. -r 640x480\n"
-		" -k N\t Never scale by more than N (default 3)\n"
+		" -f integer Scale by a whole number, nearest-neighbour (default)\n"
+		" -f fit\t Scale to fill one axis, keeping the aspect ratio\n"
+		" -f fill\t Stretch to the whole output\n"
+		" -k N\t With -f integer, never scale by more than N (default 3)\n"
 		" -P\t Expose the physical outputs to clients (debugging)\n"
 		" -s\t Allow VT switching\n"
 		" -v\t Show the version number and exit\n"
@@ -287,7 +290,7 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 	server->upscale.max_scale = 3;
 
 	int c;
-	while ((c = getopt(argc, argv, "dDhk:m:Pr:svx")) != -1) {
+	while ((c = getopt(argc, argv, "dDf:hk:m:Pr:svx")) != -1) {
 		switch (c) {
 		case 'd':
 			server->xdg_decoration = true;
@@ -298,6 +301,13 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 		case 'h':
 			usage(stdout, argv[0]);
 			return false;
+		case 'f':
+			if (!upscale_parse_fit(&server->upscale, optarg)) {
+				fprintf(stderr, "Invalid fit mode: '%s', expected integer, fit or fill\n", optarg);
+				usage(stderr, argv[0]);
+				return false;
+			}
+			break;
 		case 'k':
 			if (!upscale_parse_max_scale(&server->upscale, optarg)) {
 				fprintf(stderr, "Invalid maximum scale: '%s'\n", optarg);

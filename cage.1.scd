@@ -37,13 +37,32 @@ activities outside the scope of the running application are prevented.
 	in the virtual coordinate space.
 
 	The physical outputs keep running at the mode they would have used
-	anyway. Each frame is scaled by the largest whole number of times that
-	fits, with nearest-neighbour filtering, and centred, so the picture stays
-	pixel exact and the remainder is black.
+	anyway. How each frame is placed on them is chosen with *-f*.
+
+*-f* <mode>
+	How the virtual output is presented on each physical output. Only
+	meaningful together with *-r*.
+
+	_integer_ scales by the largest whole number of times that fits, with
+	nearest-neighbour filtering, centred. Every source pixel becomes an
+	identical square block, so the picture is pixel exact and the remainder
+	is black. This is the default.
+
+	_fit_ scales to the largest rectangle that keeps the virtual output's
+	aspect ratio, centred, with interpolation. One axis is filled exactly and
+	the other keeps a border; nothing is distorted, but the scale is not a
+	whole number so source pixels are blended.
+
+	_fill_ stretches the frame to the whole output, with interpolation. No
+	border, at the cost of distorting the aspect ratio whenever the virtual
+	output and the physical one disagree.
+
+	Where the display controller can scale a plane and be told which filter
+	to use, all three modes are performed by it rather than the GPU.
 
 *-k* <n>
-	Never scale by more than _n_, however much room the physical output has.
-	Defaults to 3. Only meaningful together with *-r*.
+	With *-f* _integer_, never scale by more than _n_, however much room the
+	physical output has. Defaults to 3. Only meaningful together with *-r*.
 
 *-P*
 	Expose the physical outputs to clients. In upscale mode they are normally
