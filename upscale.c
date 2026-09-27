@@ -233,11 +233,11 @@ handle_virtual_output_destroy(struct wl_listener *listener, void *data)
 	upscale->scene_output = NULL;
 }
 
-void
+bool
 upscale_prepare_scene(struct cg_server *server)
 {
 	if (!server->upscale.enabled) {
-		return;
+		return true;
 	}
 
 	/*
@@ -254,6 +254,20 @@ upscale_prepare_scene(struct cg_server *server)
 	 * is still a way to get scanout back.
 	 */
 	const char *prev = getenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT");
+
+	/*
+	 * The same setting would also reach the presentation scenes, where
+	 * scan-out is the only way a frame is allowed onto the screen: with it
+	 * disabled, every frame would be scaled by the GPU and refused. Say so
+	 * now rather than on the first frame.
+	 */
+	if (prev != NULL && strcmp(prev, "1") == 0) {
+		wlr_log(WLR_ERROR,
+			"WLR_SCENE_DISABLE_DIRECT_SCANOUT=1 would make the GPU scale every frame, "
+			"which -r does not allow; unset it");
+		return false;
+	}
+
 	if (prev != NULL) {
 		server->upscale.scanout_env = strdup(prev);
 		server->upscale.scanout_env_set = server->upscale.scanout_env != NULL;
@@ -262,6 +276,8 @@ upscale_prepare_scene(struct cg_server *server)
 	if (setenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT", "1", true) != 0) {
 		wlr_log_errno(WLR_ERROR, "Unable to disable direct scan-out");
 	}
+
+	return true;
 }
 
 /*
@@ -477,8 +493,7 @@ upscale_update_sink(struct cg_output *output)
 	case CG_UPSCALE_EXACT:
 	default: {
 		/* The largest whole number of times the virtual output fits,
-		 * capped so a very large panel cannot ask for more than we want
-		 * to pay for. */
+		 * capped by -k. */
 		int factor_x = width / upscale->width;
 		int factor_y = height / upscale->height;
 		int factor = factor_x < factor_y ? factor_x : factor_y;
@@ -608,6 +623,27 @@ upscale_commit_sink(struct cg_output *output)
 	wlr_output_state_init(&state);
 
 	if (!wlr_scene_output_build_state(output->scene_output, &state, NULL)) {
+		goto out;
+	}
+
+	/*
+	 * The presentation scene holds nothing but the virtual frame, so there
+	 * are only two ways wlroots can have built this state: by handing that
+	 * very buffer to a plane for the display controller to scale, or, when
+	 * the output refused it, by having the GPU draw it into the output's
+	 * swapchain instead. The second is not allowed. Before the virtual output
+	 * has produced anything there is nothing to scale, and the empty frame
+	 * drawn then is not a fallback.
+	 */
+	struct wlr_buffer *frame = output->present_buffer->buffer;
+	if (frame != NULL && (!(state.committed & WLR_OUTPUT_STATE_BUFFER) || state.buffer != frame)) {
+		wlr_log(WLR_ERROR,
+			"Output %s refused to scale the %dx%d virtual output to %dx%d in hardware, "
+			"and the GPU fallback is not allowed; run with -D for the reason",
+			output->wlr_output->name, frame->width, frame->height, output->present_buffer->dst_width,
+			output->present_buffer->dst_height);
+		server->upscale.failed = true;
+		server_terminate(server);
 		goto out;
 	}
 

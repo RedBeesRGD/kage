@@ -276,7 +276,7 @@ usage(FILE *file, const char *cage)
 		" -F nearest Never interpolate\n"
 		" -F bilinear Always interpolate\n"
 		" -F auto\t Nearest for -f exact, interpolated otherwise (default)\n"
-		" -k N\t With -f exact, never scale by more than N (default 3)\n"
+		" -k N\t With -f exact, never scale by more than N (default 4)\n"
 		" -P\t Expose the physical outputs to clients (debugging)\n"
 		" -s\t Allow VT switching\n"
 		" -v\t Show the version number and exit\n"
@@ -290,7 +290,7 @@ static bool
 parse_args(struct cg_server *server, int argc, char *argv[])
 {
 	server->enable_xwayland = true;
-	server->upscale.max_scale = 3;
+	server->upscale.max_scale = 4;
 
 	int c;
 	while ((c = getopt(argc, argv, "dDf:F:hk:m:Pr:svx")) != -1) {
@@ -467,7 +467,10 @@ main(int argc, char *argv[])
 	server.output_layout_change.notify = handle_output_layout_change;
 	wl_signal_add(&server.output_layout->events.change, &server.output_layout_change);
 
-	upscale_prepare_scene(&server);
+	if (!upscale_prepare_scene(&server)) {
+		ret = 1;
+		goto end;
+	}
 
 	server.scene = wlr_scene_create();
 	if (!server.scene) {
@@ -752,6 +755,9 @@ main(int argc, char *argv[])
 
 	seat_center_cursor(server.seat);
 	wl_display_run(server.wl_display);
+	if (server.upscale.failed) {
+		ret = 1;
+	}
 
 #if CAGE_HAS_XWAYLAND
 	if (xwayland) {

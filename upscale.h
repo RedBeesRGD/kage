@@ -42,6 +42,9 @@ struct cg_upscale {
 	int width, height;
 	/* Never scale by more than this, whatever the output can hold. */
 	int max_scale;
+	/* A physical output could not scale in hardware, and the compositor
+	 * was stopped rather than let the GPU do it. */
+	bool failed;
 
 	struct cg_server *server;
 	struct wlr_backend *backend;
@@ -66,7 +69,7 @@ bool upscale_parse_fit(struct cg_upscale *upscale, const char *arg);
 bool upscale_parse_filter(struct cg_upscale *upscale, const char *arg);
 
 /* Must be called before the scene is created. */
-void upscale_prepare_scene(struct cg_server *server);
+bool upscale_prepare_scene(struct cg_server *server);
 
 /* Must be called before the renderer and allocator are created. */
 bool upscale_create_backend(struct cg_server *server);

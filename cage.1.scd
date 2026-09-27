@@ -39,6 +39,12 @@ activities outside the scope of the running application are prevented.
 	The physical outputs keep running at the mode they would have used
 	anyway. How each frame is placed on them is chosen with *-f*.
 
+	The scaling has to be done by the display controller. If a physical
+	output refuses to scale a frame, Cage exits with an error rather than
+	have the GPU scale it. This rules out the nested Wayland and X11
+	backends, which cannot scale, and screen capture of a physical output
+	with *-P*.
+
 *-f* <mode>
 	How the virtual output is presented on each physical output. Only
 	meaningful together with *-r*.
@@ -72,13 +78,14 @@ activities outside the scope of the running application are prevented.
 
 *-k* <n>
 	With *-f* _exact_, never scale by more than _n_, however much room the
-	physical output has. Defaults to 3. Only meaningful together with *-r*.
+	physical output has. Defaults to 4. Only meaningful together with *-r*.
 
 *-P*
 	Expose the physical outputs to clients. In upscale mode they are normally
 	invisible, which also puts them out of reach of screen capture; this flag
 	makes them capturable. It is a debugging aid: with it, clients see
-	outputs they are not meant to see.
+	outputs they are not meant to see. Capturing a physical output makes
+	the GPU draw its frames, so with *-r* it stops Cage.
 
 *-s*
 	Allow VT switching
