@@ -31,6 +31,9 @@ struct cg_shader {
 	bool enabled;
 	char *path;
 	char *source;
+	/* -V: replaces the built-in vertex stage. */
+	char *vertex_path;
+	char *vertex_source;
 
 	/* Set with -U. A uniform set here is never driven by the compositor. */
 	struct cg_shader_uniform uniforms[CG_SHADER_MAX_UNIFORMS];
@@ -51,6 +54,7 @@ struct cg_shader {
 };
 
 bool shader_parse_file(struct cg_shader *shader, const char *path);
+bool shader_parse_vertex_file(struct cg_shader *shader, const char *path);
 bool shader_parse_uniform(struct cg_shader *shader, const char *arg);
 
 /* Compiles and links the program. Needs the GLES2 renderer. */

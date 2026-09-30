@@ -100,8 +100,9 @@ activities outside the scope of the running application are prevented.
 	*-F* and *-k* apply to it unchanged, and it is still scaled by the display
 	controller. The shader never sees the physical outputs.
 
-	The shader is drawn as one full-frame quad, one fragment per virtual
-	pixel. It receives:
+	The frame is drawn as a mesh with a vertex every 8 virtual pixels across
+	and every 4 down, and one fragment per virtual pixel. With the built-in
+	vertex stage, the shader receives:
 
 	_uvs_ (varying vec2) runs from 0,0 at the top left of the frame to 1,1 at
 	the bottom right.
@@ -109,7 +110,12 @@ activities outside the scope of the running application are prevented.
 	_scanlinecoord_ (varying vec2) is _uvs_ with the vertical axis multiplied
 	by _scanlinerepeat_.
 
+	Cage also sets these uniforms, in whichever stage declares them:
+
 	_tex_ (sampler2D) is the frame to process, with linear filtering.
+
+	_texnearest_ (sampler2D) is the same frame with nearest filtering.
+	Sampling it is the cheap and exact way to read whole texels.
 
 	_scanlinetex_ (sampler2D) is two texels tall, 0 in the first row and 1 in
 	the second, repeating.
@@ -117,6 +123,10 @@ activities outside the scope of the running application are prevented.
 	_noisetex_ (sampler2D) is 64x64 of random values, repeating.
 
 	_texturewidth_ (float) is the width of the frame.
+
+	_texturesize_ (vec2) is the width and height of the frame.
+
+	_texelsize_ (vec2) is 1 over _texturesize_.
 
 	_time_ (float) is seconds since startup, wrapping after an hour.
 
@@ -139,6 +149,20 @@ activities outside the scope of the running application are prevented.
 	example *-U* evil=0.3. May be repeated. A uniform set this way is never
 	changed by Cage, including the ones listed under *-S*. Uniforms nobody
 	sets are 0.
+
+*-V* <file>
+	Use the GLSL ES 1.00 vertex shader in _file_ instead of the built-in one
+	with *-S*. It is run for every vertex of the mesh, with the attribute
+	_cg_position_ (vec2) running from 0,0 at the top left of the frame to 1,1
+	at the bottom right, and must cover the frame: gl_Position is normally
+	vec4(cg_position \* 2.0 - 1.0, 0.0, 1.0).
+
+	Anything that varies smoothly across the frame can be worked out here
+	and interpolated instead of computed for every pixel, which on a small
+	GPU is most of the cost of an effect. A texture coordinate passed
+	through untouched is also cheaper to sample from than one computed in
+	the fragment shader. contrib/crt-fast.vert and contrib/crt-fast.frag
+	are contrib/crt.frag rearranged this way.
 
 *-v*
 	Show the version number and exit.

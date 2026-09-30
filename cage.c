@@ -283,6 +283,7 @@ usage(FILE *file, const char *cage)
 		" -S FILE Run the GLSL ES fragment shader in FILE over every frame,\n"
 		"\t at the -r resolution, before it is scaled\n"
 		" -U NAME=VALUE[,VALUE...] Set a float uniform of the -S shader\n"
+		" -V FILE Use the GLSL ES vertex shader in FILE with -S\n"
 		" -v\t Show the version number and exit\n"
 		" -x\t Disable XWayland\n"
 		"\n"
@@ -297,7 +298,7 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 	server->upscale.max_scale = 4;
 
 	int c;
-	while ((c = getopt(argc, argv, "dDf:F:hk:m:Pr:sS:U:vx")) != -1) {
+	while ((c = getopt(argc, argv, "dDf:F:hk:m:Pr:sS:U:vV:x")) != -1) {
 		switch (c) {
 		case 'd':
 			server->xdg_decoration = true;
@@ -364,6 +365,12 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 		case 'v':
 			fprintf(stdout, "Cage version " CAGE_VERSION "\n");
 			exit(0);
+		case 'V':
+			if (!shader_parse_vertex_file(&server->shader, optarg)) {
+				usage(stderr, argv[0]);
+				return false;
+			}
+			break;
 		case 'x':
 			server->enable_xwayland = false;
 			break;
@@ -382,6 +389,11 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 	}
 	if (server->shader.uniforms_len > 0 && !server->shader.enabled) {
 		fprintf(stderr, "-U needs -S\n");
+		usage(stderr, argv[0]);
+		return false;
+	}
+	if (server->shader.vertex_source && !server->shader.enabled) {
+		fprintf(stderr, "-V needs -S\n");
 		usage(stderr, argv[0]);
 		return false;
 	}
