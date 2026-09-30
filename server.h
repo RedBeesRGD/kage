@@ -17,6 +17,7 @@
 #include <wlr/xwayland.h>
 #endif
 
+#include "shader.h"
 #include "upscale.h"
 
 enum cg_multi_output_mode {
@@ -41,6 +42,7 @@ struct cg_server {
 
 	enum cg_multi_output_mode output_mode;
 	struct cg_upscale upscale;
+	struct cg_shader shader;
 	bool expose_physical_outputs;
 	struct wlr_output_layout *output_layout;
 	struct wlr_scene_output_layout *scene_output_layout;

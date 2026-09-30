@@ -276,6 +276,7 @@ upscale_prepare_scene(struct cg_server *server)
 	if (setenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT", "1", true) != 0) {
 		wlr_log_errno(WLR_ERROR, "Unable to disable direct scan-out");
 	}
+	server->upscale.scanout_overridden = true;
 
 	return true;
 }
@@ -293,12 +294,12 @@ upscale_prepare_scene(struct cg_server *server)
 static void
 upscale_restore_scanout(struct cg_upscale *upscale)
 {
-	static bool restored = false;
-
-	if (restored) {
+	/* With a shader, the scene made its own arrangements and there is
+	 * nothing of ours to undo. */
+	if (!upscale->scanout_overridden) {
 		return;
 	}
-	restored = true;
+	upscale->scanout_overridden = false;
 
 	if (upscale->scanout_env_set) {
 		setenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT", upscale->scanout_env, true);

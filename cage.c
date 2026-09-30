@@ -58,6 +58,7 @@
 #include "output.h"
 #include "seat.h"
 #include "server.h"
+#include "shader.h"
 #include "upscale.h"
 #include "view.h"
 #include "xdg_shell.h"
@@ -279,6 +280,7 @@ usage(FILE *file, const char *cage)
 		" -k N\t With -f exact, never scale by more than N (default 4)\n"
 		" -P\t Expose the physical outputs to clients (debugging)\n"
 		" -s\t Allow VT switching\n"
+		" -S FILE Post-process every frame with the GLSL ES fragment shader in FILE\n"
 		" -v\t Show the version number and exit\n"
 		" -x\t Disable XWayland\n"
 		"\n"
@@ -293,7 +295,7 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 	server->upscale.max_scale = 4;
 
 	int c;
-	while ((c = getopt(argc, argv, "dDf:F:hk:m:Pr:svx")) != -1) {
+	while ((c = getopt(argc, argv, "dDf:F:hk:m:Pr:sS:vx")) != -1) {
 		switch (c) {
 		case 'd':
 			server->xdg_decoration = true;
@@ -344,6 +346,12 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 			break;
 		case 's':
 			server->allow_vt_switch = true;
+			break;
+		case 'S':
+			if (!shader_load(&server->shader, optarg)) {
+				usage(stderr, argv[0]);
+				return false;
+			}
 			break;
 		case 'v':
 			fprintf(stdout, "Cage version " CAGE_VERSION "\n");
@@ -417,9 +425,18 @@ main(int argc, char *argv[])
 		goto end;
 	}
 
-	server.renderer = wlr_renderer_autocreate(server.backend);
+	if (server.shader.enabled) {
+		server.renderer = shader_create_renderer(server.backend);
+	} else {
+		server.renderer = wlr_renderer_autocreate(server.backend);
+	}
 	if (!server.renderer) {
 		wlr_log(WLR_ERROR, "Unable to create the wlroots renderer");
+		ret = 1;
+		goto end;
+	}
+
+	if (server.shader.enabled && !shader_init(&server)) {
 		ret = 1;
 		goto end;
 	}
@@ -467,12 +484,17 @@ main(int argc, char *argv[])
 	server.output_layout_change.notify = handle_output_layout_change;
 	wl_signal_add(&server.output_layout->events.change, &server.output_layout_change);
 
-	if (!upscale_prepare_scene(&server)) {
+	/* The shader, not a scaling plane, presents every frame. */
+	if (!server.shader.enabled && !upscale_prepare_scene(&server)) {
 		ret = 1;
 		goto end;
 	}
 
-	server.scene = wlr_scene_create();
+	if (server.shader.enabled) {
+		server.scene = shader_create_scene();
+	} else {
+		server.scene = wlr_scene_create();
+	}
 	if (!server.scene) {
 		wlr_log(WLR_ERROR, "Unable to create scene");
 		ret = 1;
@@ -804,6 +826,7 @@ end:
 	if (server.scene != NULL) {
 		wlr_scene_node_destroy(&server.scene->tree.node);
 	}
+	shader_finish(&server.shader);
 	wlr_allocator_destroy(server.allocator);
 	wlr_renderer_destroy(server.renderer);
 	return ret;

@@ -57,6 +57,8 @@ struct cg_upscale {
 	 * the presentation scenes can be created with the user's setting. */
 	char *scanout_env;
 	bool scanout_env_set;
+	/* upscale_prepare_scene() changed it, and it has not been restored. */
+	bool scanout_overridden;
 
 	struct wl_listener commit;
 	struct wl_listener frame;

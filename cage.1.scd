@@ -90,6 +90,35 @@ activities outside the scope of the running application are prevented.
 *-s*
 	Allow VT switching
 
+*-S* <file>
+	Post-process every frame with the GLSL ES 1.00 fragment shader in
+	_file_, for example the CRT shader in _contrib/crt.frag_. Requires the
+	GLES2 renderer, which Cage selects itself unless _WLR_RENDERER_ names
+	another.
+
+	With *-r*, the shader reads the virtual output and draws it into the box
+	*-f* chooses on each physical output, so the GPU does the scaling after
+	all: the display controller requirement does not apply, and *-F* has no
+	effect. Without *-r*, the scene is composited offscreen for each output
+	and the shader draws it across the whole output. Either way, direct
+	scan-out and hardware cursors are disabled, and every output redraws on
+	every refresh so that the shader can animate.
+
+	The shader is linked against a built-in vertex shader, which provides
+	*varying vec2 uvs*, the picture's coordinates with (0, 0) at the top
+	left, and *varying vec2 scanlinecoord*, whose y counts the picture's
+	rows. Cage sets the following uniforms when the shader declares them;
+	any others stay at zero.
+
+	*sampler2D tex*: the picture, bilinear and clamped. ++
+*sampler2D noisetex*: 64x64 random texels, repeating. ++
+*sampler2D scanlinetex*: one scanline's profile in .r, repeating. ++
+*float texturewidth*: the picture's width in pixels. ++
+*float time*: seconds, wrapping within [1, 9). ++
+*float wobblephase*: radians, advancing at pi per second. ++
+*vec2 noisescale*: output pixels per _noisetex_ texel. ++
+*vec2 noiseoffset*: random each frame, within [0, 1).
+
 *-v*
 	Show the version number and exit.
 

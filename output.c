@@ -36,6 +36,7 @@
 
 #include "output.h"
 #include "server.h"
+#include "shader.h"
 #include "upscale.h"
 #include "view.h"
 #if CAGE_HAS_XWAYLAND
@@ -163,7 +164,11 @@ handle_output_frame(struct wl_listener *listener, void *data)
 	 * we are about to scale onto this output. */
 	upscale_render(server);
 
-	upscale_commit_sink(output);
+	if (server->shader.enabled) {
+		shader_commit_output(output);
+	} else {
+		upscale_commit_sink(output);
+	}
 
 	struct timespec now = {0};
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -243,6 +248,8 @@ output_destroy(struct cg_output *output)
 
 	output_layout_remove(output);
 
+	shader_output_finish(output);
+
 	if (output->present_scene) {
 		/* Destroys the presentation buffer node and its scene output. */
 		wlr_scene_node_destroy(&output->present_scene->tree.node);
@@ -318,6 +325,10 @@ handle_new_output(struct wl_listener *listener, void *data)
 	wl_signal_add(&wlr_output->events.destroy, &output->destroy);
 	output->frame.notify = handle_output_frame;
 	wl_signal_add(&wlr_output->events.frame, &output->frame);
+
+	if (server->shader.enabled && !shader_setup_output(output)) {
+		return;
+	}
 
 	if (server->upscale.enabled) {
 		if (!upscale_setup_sink(output)) {

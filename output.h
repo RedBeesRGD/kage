@@ -18,6 +18,9 @@ struct cg_output {
 	struct wlr_scene *present_scene;
 	struct wlr_scene_buffer *present_buffer;
 
+	/* Shader mode only. */
+	struct cg_shader_output *shader;
+
 	struct wl_listener commit;
 	struct wl_listener request_state;
 	struct wl_listener destroy;
