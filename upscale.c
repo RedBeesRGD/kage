@@ -134,9 +134,78 @@ upscale_set_last_buffer(struct cg_upscale *upscale, struct wlr_buffer *buffer)
 }
 
 /*
- * Every physical output presents the same virtual frame, so a single render of
- * the virtual output feeds all of them.
+ * Hand a frame to every presentation scene. Every physical output presents the
+ * same virtual frame, so a single render of the virtual output feeds all of
+ * them.
  */
+static void
+upscale_present(struct cg_upscale *upscale, struct wlr_buffer *buffer)
+{
+	upscale_set_last_buffer(upscale, buffer);
+
+	struct cg_output *output;
+	wl_list_for_each (output, &upscale->server->outputs, link) {
+		if (output->present_buffer) {
+			wlr_scene_buffer_set_buffer(output->present_buffer, buffer);
+			/* Setting a buffer must not be allowed to lose this. */
+			wlr_scene_buffer_set_filter_mode(output->present_buffer, upscale_filter(upscale));
+		}
+	}
+}
+
+static void
+upscale_set_source_buffer(struct cg_upscale *upscale, struct wlr_buffer *buffer)
+{
+	if (upscale->source_buffer == buffer) {
+		return;
+	}
+
+	if (upscale->source_buffer) {
+		wlr_buffer_unlock(upscale->source_buffer);
+	}
+
+	upscale->source_buffer = buffer ? wlr_buffer_lock(buffer) : NULL;
+}
+
+/* Frames in a row the shader may fail before it is switched off. */
+#define SHADE_MAX_FAILURES 60
+
+/*
+ * Run -S over the latest virtual frame and present the result in its place.
+ *
+ * The shaded frame is the virtual output's size, format and modifier, so from
+ * here on it goes through exactly the path an unshaded frame would: the same
+ * presentation buffer, destination box, filter and scaling plane. Nothing about
+ * how it reaches the screen is decided here.
+ */
+static void
+upscale_shade(struct cg_upscale *upscale)
+{
+	struct cg_shader *shader = &upscale->server->shader;
+
+	upscale->shaded = true;
+
+	struct wlr_buffer *shaded = shader_apply(shader, upscale->source_buffer);
+	if (shaded) {
+		upscale->shade_failures = 0;
+		upscale_present(upscale, shaded);
+		/* The presentation scenes and last_buffer hold their own locks. */
+		wlr_buffer_unlock(shaded);
+		return;
+	}
+
+	/* Keep showing the last shaded frame rather than flash an unshaded
+	 * one, unless the shader is clearly not going to recover. */
+	if (++upscale->shade_failures < SHADE_MAX_FAILURES && upscale->last_buffer != NULL) {
+		return;
+	}
+
+	wlr_log(WLR_ERROR, "shader: giving up on %s, presenting frames unshaded", shader->path);
+	shader_finish(shader);
+	upscale_present(upscale, upscale->source_buffer);
+	upscale_set_source_buffer(upscale, NULL);
+}
+
 static void
 handle_virtual_output_commit(struct wl_listener *listener, void *data)
 {
@@ -147,8 +216,6 @@ handle_virtual_output_commit(struct wl_listener *listener, void *data)
 		return;
 	}
 
-	upscale_set_last_buffer(upscale, event->state->buffer);
-
 	static bool reported = false;
 	if (!reported) {
 		wlr_log(WLR_DEBUG, "upscale: virtual output committed a %dx%d buffer", event->state->buffer->width,
@@ -156,14 +223,13 @@ handle_virtual_output_commit(struct wl_listener *listener, void *data)
 		reported = true;
 	}
 
-	struct cg_output *output;
-	wl_list_for_each (output, &upscale->server->outputs, link) {
-		if (output->present_buffer) {
-			wlr_scene_buffer_set_buffer(output->present_buffer, event->state->buffer);
-			/* Setting a buffer must not be allowed to lose this. */
-			wlr_scene_buffer_set_filter_mode(output->present_buffer, upscale_filter(upscale));
-		}
+	if (upscale->server->shader.enabled) {
+		upscale_set_source_buffer(upscale, event->state->buffer);
+		upscale_shade(upscale);
+		return;
 	}
+
+	upscale_present(upscale, event->state->buffer);
 }
 
 static bool
@@ -229,6 +295,7 @@ handle_virtual_output_destroy(struct wl_listener *listener, void *data)
 	wl_list_init(&upscale->destroy.link);
 
 	upscale_set_last_buffer(upscale, NULL);
+	upscale_set_source_buffer(upscale, NULL);
 	upscale->wlr_output = NULL;
 	upscale->scene_output = NULL;
 }
@@ -594,6 +661,18 @@ upscale_render(struct cg_server *server)
 	/* A no-op when the virtual scene is undamaged, so calling this once per
 	 * physical output per frame is cheap. */
 	wlr_scene_output_commit(upscale->scene_output, NULL);
+
+	/*
+	 * An animated shader changes the picture even when the clients do not.
+	 * Shading the last frame again gives the presentation scene a new buffer
+	 * and therefore damage, so this physical output commits and gets
+	 * another frame event: that is what keeps the animation running.
+	 */
+	struct cg_shader *shader = &server->shader;
+	if (shader->enabled && shader->animated && !upscale->shaded && upscale->source_buffer) {
+		upscale_shade(upscale);
+	}
+	upscale->shaded = false;
 }
 
 /*
@@ -689,6 +768,7 @@ upscale_destroy(struct cg_server *server)
 	}
 
 	upscale_set_last_buffer(upscale, NULL);
+	upscale_set_source_buffer(upscale, NULL);
 
 	free(upscale->scanout_env);
 	upscale->scanout_env = NULL;

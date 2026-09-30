@@ -43,6 +43,7 @@ xkbcommon      = dependency('xkbcommon')
 math           = cc.find_library('m')
 
 have_xwayland = wlroots.get_variable(pkgconfig: 'have_xwayland', internal: 'have_xwayland') == 'true'
+have_gles2 = wlroots.get_variable(pkgconfig: 'have_gles2_renderer', internal: 'have_gles2_renderer') == 'true'
 
 version = '@0@'.format(meson.project_version())
 if fs.is_dir('.git')
@@ -95,6 +96,7 @@ cage_sources = [
   'idle_inhibit_v1.c',
   'output.c',
   'seat.c',
+  'shader.c',
   'upscale.c',
   'view.c',
   'xdg_shell.c',
@@ -107,15 +109,25 @@ if conf_data.get('CAGE_HAS_XWAYLAND', 0) == 1
   cage_sources += 'xwayland.c'
 endif
 
+cage_deps = [
+  wayland_server,
+  wlroots,
+  xkbcommon,
+  math,
+]
+
+# -S talks to the GLES2 renderer's context directly.
+if have_gles2
+  cage_deps += [
+    dependency('egl'),
+    dependency('glesv2'),
+  ]
+endif
+
 executable(
   meson.project_name(),
   cage_sources,
-  dependencies: [
-    wayland_server,
-    wlroots,
-    xkbcommon,
-    math,
-  ],
+  dependencies: cage_deps,
   install: true,
 )
 
@@ -124,6 +136,7 @@ summary = [
   'Cage @0@'.format(version),
   '',
   '    xwayland: @0@'.format(have_xwayland),
+  '    shader (-S): @0@'.format(have_gles2),
   ''
 ]
 message('\n'.join(summary))

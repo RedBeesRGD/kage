@@ -50,8 +50,18 @@ struct cg_upscale {
 	struct wlr_backend *backend;
 	struct wlr_output *wlr_output;
 	struct wlr_scene_output *scene_output;
-	/* Most recent render of the virtual output, locked. */
+	/* Most recent frame handed to the presentation scenes, locked. With
+	 * -S, that is the shaded frame. */
 	struct wlr_buffer *last_buffer;
+
+	/* With -S: the most recent render of the virtual output before
+	 * shading, locked, so an animated shader can run again on it every
+	 * physical frame. */
+	struct wlr_buffer *source_buffer;
+	/* The current source has already been shaded for this frame. */
+	bool shaded;
+	/* Frames in a row the shader could not process. */
+	int shade_failures;
 
 	/* WLR_SCENE_DISABLE_DIRECT_SCANOUT as it was before we touched it, so
 	 * the presentation scenes can be created with the user's setting. */

@@ -58,6 +58,7 @@
 #include "output.h"
 #include "seat.h"
 #include "server.h"
+#include "shader.h"
 #include "upscale.h"
 #include "view.h"
 #include "xdg_shell.h"
@@ -279,6 +280,9 @@ usage(FILE *file, const char *cage)
 		" -k N\t With -f exact, never scale by more than N (default 4)\n"
 		" -P\t Expose the physical outputs to clients (debugging)\n"
 		" -s\t Allow VT switching\n"
+		" -S FILE Run the GLSL ES fragment shader in FILE over every frame,\n"
+		"\t at the -r resolution, before it is scaled\n"
+		" -U NAME=VALUE[,VALUE...] Set a float uniform of the -S shader\n"
 		" -v\t Show the version number and exit\n"
 		" -x\t Disable XWayland\n"
 		"\n"
@@ -293,7 +297,7 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 	server->upscale.max_scale = 4;
 
 	int c;
-	while ((c = getopt(argc, argv, "dDf:F:hk:m:Pr:svx")) != -1) {
+	while ((c = getopt(argc, argv, "dDf:F:hk:m:Pr:sS:U:vx")) != -1) {
 		switch (c) {
 		case 'd':
 			server->xdg_decoration = true;
@@ -345,6 +349,18 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 		case 's':
 			server->allow_vt_switch = true;
 			break;
+		case 'S':
+			if (!shader_parse_file(&server->shader, optarg)) {
+				usage(stderr, argv[0]);
+				return false;
+			}
+			break;
+		case 'U':
+			if (!shader_parse_uniform(&server->shader, optarg)) {
+				usage(stderr, argv[0]);
+				return false;
+			}
+			break;
 		case 'v':
 			fprintf(stdout, "Cage version " CAGE_VERSION "\n");
 			exit(0);
@@ -355,6 +371,19 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 			usage(stderr, argv[0]);
 			return false;
 		}
+	}
+
+	/* The shader runs on the virtual output's frames, ahead of the scaling
+	 * that -r sets up, and nowhere else. */
+	if (server->shader.enabled && !server->upscale.enabled) {
+		fprintf(stderr, "-S needs -r\n");
+		usage(stderr, argv[0]);
+		return false;
+	}
+	if (server->shader.uniforms_len > 0 && !server->shader.enabled) {
+		fprintf(stderr, "-U needs -S\n");
+		usage(stderr, argv[0]);
+		return false;
 	}
 
 	return true;
@@ -427,6 +456,11 @@ main(int argc, char *argv[])
 	server.allocator = wlr_allocator_autocreate(server.backend, server.renderer);
 	if (!server.allocator) {
 		wlr_log(WLR_ERROR, "Unable to create the wlroots allocator");
+		ret = 1;
+		goto end;
+	}
+
+	if (!shader_init(&server.shader, server.renderer, server.allocator)) {
 		ret = 1;
 		goto end;
 	}
@@ -804,6 +838,7 @@ end:
 	if (server.scene != NULL) {
 		wlr_scene_node_destroy(&server.scene->tree.node);
 	}
+	shader_finish(&server.shader);
 	wlr_allocator_destroy(server.allocator);
 	wlr_renderer_destroy(server.renderer);
 	return ret;
